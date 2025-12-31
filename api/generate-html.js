@@ -64,9 +64,8 @@ function formatTextToSafeHtml(input = "") {
 }
 
 function replaceAllSafe(template, key, value) {
-  // replaces {{Key}} everywhere
-  const token = `{{${key}}}`;
-  return template.split(token).join(value ?? "");
+  const re = new RegExp(`{{\\s*${key}\\s*}}`, "g");
+  return template.replace(re, value ?? "");
 }
 
 export default async function handler(req, res) {
@@ -89,17 +88,24 @@ export default async function handler(req, res) {
         .status(400)
         .json({ error: "image_url is required (upload or paste Image URL)" });
     }
+    console.log("IMAGE URL USED:", imageUrl);
 
     // Load template file from /api/templates/template_base.html
+    const templateKey = (payload.templateType || "CASINO")
+      .toString()
+      .trim()
+      .toLowerCase();
     const templatePath = path.join(
       process.cwd(),
       "api",
       "templates",
-      "template_base.html"
+      `${templateKey}.html`
     );
+
     if (!fs.existsSync(templatePath)) {
       return res.status(500).json({
-        error: "Template file not found: api/templates/template_base.html",
+        error: "Template file not found: api/templates/${templateKey}.html"
+",
       });
     }
 

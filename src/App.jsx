@@ -88,12 +88,14 @@ export default function App() {
   const downloadBlob = async (response) => {
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
+
     const a = document.createElement("a");
     a.href = url;
     a.download = ""; // filename comes from server headers
     document.body.appendChild(a);
     a.click();
     a.remove();
+
     window.URL.revokeObjectURL(url);
   };
 
@@ -102,9 +104,10 @@ export default function App() {
     setSubmitting(true);
 
     try {
+      const submittedAt = new Date().toISOString();
       let finalImageUrl = (form.imageLink || "").trim();
 
-      // 1) Upload image if user selected a file
+      // 1) Upload image to ImgBB if user selected a file and no URL was pasted
       if (!finalImageUrl && imageFile) {
         const base64 = await fileToBase64(imageFile);
 
@@ -128,15 +131,17 @@ export default function App() {
         throw new Error("Please upload an image OR paste an image URL.");
       }
 
-      // 2) Generate downloadable HTML
+      const payload = {
+        ...form,
+        image_url: finalImageUrl,
+        submitted_at: submittedAt,
+      };
+
+      // 2) Generate + download HTML
       const generateRes = await fetch("/api/generate-html", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          image_url: finalImageUrl,
-          submitted_at: new Date().toISOString(),
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!generateRes.ok) {
@@ -145,16 +150,30 @@ export default function App() {
         throw new Error(err?.error || "HTML generation failed");
       }
 
-      // 3) Download
       await downloadBlob(generateRes);
 
-      // Optional reset after success
+      // 3) Generate + download BRIEF TXT
+      const briefRes = await fetch("/api/generate-brief", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!briefRes.ok) {
+        const err = await briefRes.json().catch(() => ({}));
+        console.error("generate-brief error:", err);
+        throw new Error(err?.error || "Brief generation failed");
+      }
+
+      await downloadBlob(briefRes);
+
+      // 4) Reset
       setForm(INITIAL);
       setImageFile(null);
-      alert("✅ HTML generated and downloaded!");
+      alert("✅ Downloaded: email.html + brief.txt");
     } catch (err) {
       console.error(err);
-      alert(`❌ ${err.message || "Something went wrong"}`);
+      alert(`❌ ${err?.message || "Something went wrong"}`);
     } finally {
       setSubmitting(false);
     }
@@ -302,7 +321,9 @@ export default function App() {
                     type="submit"
                     disabled={submitting}
                   >
-                    {submitting ? "Generating..." : "Generate & Download HTML"}
+                    {submitting
+                      ? "Generating..."
+                      : "Generate & Download (2 files)"}
                   </button>
 
                   <button
@@ -323,8 +344,7 @@ export default function App() {
         </div>
 
         <div className="alert alert-info mt-3">
-          This version uses <code>/api/upload-image</code> (ImgBB) +{" "}
-          <code>/api/generate-html</code> (download).
+          Downloads: <code>email.html</code> + <code>brief.txt</code>
         </div>
       </div>
     </div>
