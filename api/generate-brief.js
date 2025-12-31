@@ -36,7 +36,13 @@ export default async function handler(req, res) {
     const imageUrl = (payload.image_url || payload.imageLink || "")
       .toString()
       .trim();
-
+    const imageClickLink = (
+      payload.image_click_link ||
+      payload.imageClickLink ||
+      ""
+    )
+      .toString()
+      .trim();
     const stamp = new Date().toISOString().slice(0, 10);
     const name = safeFilename(subject || templateType);
     const filename = `${templateType}_${stamp}_${name}_brief.txt`;
@@ -58,6 +64,9 @@ CTA:
 
 Image URL:
 ${imageUrl}
+
+Src (uploaded): ${imageUrl}
+Click link:     ${imageClickLink}
 
 Terms & Conditions:
 ${terms}

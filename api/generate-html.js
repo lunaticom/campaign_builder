@@ -104,8 +104,7 @@ export default async function handler(req, res) {
 
     if (!fs.existsSync(templatePath)) {
       return res.status(500).json({
-        error: "Template file not found: api/templates/${templateKey}.html"
-",
+        error: `Template file not found: api/templates/${templateKey}.html`,
       });
     }
 
@@ -126,10 +125,18 @@ export default async function handler(req, res) {
     );
     html = replaceAllSafe(html, "Link_CTA", escapeHtml(payload.cta_link || ""));
     html = replaceAllSafe(html, "Immagine_URL", escapeHtml(imageUrl));
+    const imageClickLink = (
+      payload.image_click_link ||
+      payload.imageClickLink ||
+      ""
+    )
+      .toString()
+      .trim();
+
     html = replaceAllSafe(
       html,
       "Link_img_header",
-      escapeHtml(payload.cta_link || "")
+      escapeHtml(imageClickLink || payload.cta_link || "")
     );
     html = replaceAllSafe(html, "T_C", tcHtml);
 

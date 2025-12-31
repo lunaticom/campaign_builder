@@ -8,7 +8,7 @@ const INITIAL = {
   cta_text: "",
   cta_link: "",
   terms: "",
-  imageLink: "",
+  imageClickLink: "",
 };
 
 function escapeHtml(str = "") {
@@ -104,40 +104,37 @@ export default function App() {
     setSubmitting(true);
 
     try {
-      const submittedAt = new Date().toISOString();
-      let finalImageUrl = (form.imageLink || "").trim();
-
-      // 1) Upload image to ImgBB if user selected a file and no URL was pasted
-      if (!finalImageUrl && imageFile) {
-        const base64 = await fileToBase64(imageFile);
-
-        const uploadRes = await fetch("/api/upload-image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: base64, name: imageFile.name }),
-        });
-
-        const uploadJson = await uploadRes.json().catch(() => ({}));
-        if (!uploadRes.ok) {
-          console.error("upload-image error:", uploadJson);
-          throw new Error(uploadJson?.error || "Image upload failed");
-        }
-
-        finalImageUrl = uploadJson?.url;
-        if (!finalImageUrl) throw new Error("No image URL returned from ImgBB");
+      // 0) Require image file (MVP)
+      if (!imageFile) {
+        throw new Error("Please upload an image file (required).");
       }
 
-      if (!finalImageUrl) {
-        throw new Error("Please upload an image OR paste an image URL.");
+      // 1) Upload to ImgBB -> get the REAL image URL for <img src>
+      const base64 = await fileToBase64(imageFile);
+
+      const uploadRes = await fetch("/api/upload-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64, name: imageFile.name }),
+      });
+
+      const uploadJson = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok || !uploadJson?.url) {
+        console.error("upload-image error:", uploadJson);
+        throw new Error(uploadJson?.error || "Image upload failed");
       }
 
+      const uploadedImageUrl = uploadJson.url;
+
+      // 2) Build payload (CLEAR separation)
       const payload = {
         ...form,
-        image_url: finalImageUrl,
-        submitted_at: submittedAt,
+        image_url: uploadedImageUrl, // ✅ for <img src>
+        image_click_link: (form.imageClickLink || "").trim(), // ✅ for <a href>
+        submitted_at: new Date().toISOString(),
       };
 
-      // 2) Generate + download HTML
+      // 3) Generate + download HTML
       const generateRes = await fetch("/api/generate-html", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -152,7 +149,7 @@ export default function App() {
 
       await downloadBlob(generateRes);
 
-      // 3) Generate + download BRIEF TXT
+      // 4) Generate + download BRIEF TXT
       const briefRes = await fetch("/api/generate-brief", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -167,7 +164,7 @@ export default function App() {
 
       await downloadBlob(briefRes);
 
-      // 4) Reset
+      // 5) Reset
       setForm(INITIAL);
       setImageFile(null);
       alert("✅ Downloaded: email.html + brief.txt");
@@ -299,20 +296,24 @@ export default function App() {
                     onChange={(e) => setImageFile(e.target.files?.[0] || null)}
                   />
                   <div className="form-text">
-                    Upload a file OR paste a public URL on the right.
+                    Upload an image file (required).
                   </div>
                 </div>
 
                 <div className="col-md-6">
-                  <label className="form-label">Image URL (optional)</label>
+                  <label className="form-label">Image click link</label>
                   <input
                     className="form-control"
                     type="url"
-                    name="imageLink"
-                    value={form.imageLink}
+                    name="imageClickLink"
+                    value={form.imageClickLink}
                     onChange={onChange}
                     placeholder="https://..."
                   />
+                  <div className="form-text">
+                    If provided, the header image will be clickable and open
+                    this URL.
+                  </div>
                 </div>
 
                 <div className="col-12 d-flex gap-2 mt-2">
