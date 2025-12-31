@@ -30,7 +30,6 @@ function formatTextToPreviewHtml(input = "") {
   for (const line of lines) {
     const trimmed = line.trim();
 
-    // Bullet line: "- something"
     if (trimmed.startsWith("- ")) {
       if (!inList) {
         html += "<ul>";
@@ -43,7 +42,6 @@ function formatTextToPreviewHtml(input = "") {
 
       html += `<li>${content}</li>`;
     } else {
-      // Close list if we were in one
       if (inList) {
         html += "</ul>";
         inList = false;
@@ -79,14 +77,25 @@ export default function App() {
     new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
-        // data:image/png;base64,XXXX...
-        const result = reader.result;
+        const result = reader.result; // data:image/png;base64,....
         const base64 = String(result).split(",")[1] || "";
         resolve(base64);
       };
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
+
+  const downloadBlob = async (response) => {
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = ""; // filename comes from server headers
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -95,7 +104,7 @@ export default function App() {
     try {
       let finalImageUrl = (form.imageLink || "").trim();
 
-      // 1) If user didn't paste a URL, upload selected file to ImgBB
+      // 1) Upload image if user selected a file
       if (!finalImageUrl && imageFile) {
         const base64 = await fileToBase64(imageFile);
 
@@ -105,7 +114,7 @@ export default function App() {
           body: JSON.stringify({ imageBase64: base64, name: imageFile.name }),
         });
 
-        const uploadJson = await uploadRes.json();
+        const uploadJson = await uploadRes.json().catch(() => ({}));
         if (!uploadRes.ok) {
           console.error("upload-image error:", uploadJson);
           throw new Error(uploadJson?.error || "Image upload failed");
@@ -119,31 +128,33 @@ export default function App() {
         throw new Error("Please upload an image OR paste an image URL.");
       }
 
-      // 2) Send payload to our server (it will forward to Zapier)
-      const payload = {
-        ...form,
-        image_url: finalImageUrl,
-        submitted_at: new Date().toISOString(),
-      };
-
-      const resp = await fetch("/api/submit", {
+      // 2) Generate downloadable HTML
+      const generateRes = await fetch("/api/generate-html", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...form,
+          image_url: finalImageUrl,
+          submitted_at: new Date().toISOString(),
+        }),
       });
 
-      const respJson = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        console.error("submit error:", respJson);
-        throw new Error(respJson?.error || "Submit failed");
+      if (!generateRes.ok) {
+        const err = await generateRes.json().catch(() => ({}));
+        console.error("generate-html error:", err);
+        throw new Error(err?.error || "HTML generation failed");
       }
 
-      alert("✅ Sent to Zapier!");
+      // 3) Download
+      await downloadBlob(generateRes);
+
+      // Optional reset after success
       setForm(INITIAL);
       setImageFile(null);
+      alert("✅ HTML generated and downloaded!");
     } catch (err) {
-      alert(`❌ ${err.message}`);
       console.error(err);
+      alert(`❌ ${err.message || "Something went wrong"}`);
     } finally {
       setSubmitting(false);
     }
@@ -291,7 +302,7 @@ export default function App() {
                     type="submit"
                     disabled={submitting}
                   >
-                    {submitting ? "Submitting..." : "Submit"}
+                    {submitting ? "Generating..." : "Generate & Download HTML"}
                   </button>
 
                   <button
@@ -312,8 +323,8 @@ export default function App() {
         </div>
 
         <div className="alert alert-info mt-3">
-          This version submits to <code>/api/upload-image</code> (ImgBB) and{" "}
-          <code>/api/submit</code> (Zapier).
+          This version uses <code>/api/upload-image</code> (ImgBB) +{" "}
+          <code>/api/generate-html</code> (download).
         </div>
       </div>
     </div>
