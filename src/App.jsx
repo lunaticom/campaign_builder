@@ -10,6 +10,7 @@ const INITIAL = {
   terms: "",
   imageLink: "",
 };
+
 function escapeHtml(str = "") {
   return str
     .replaceAll("&", "&amp;")
@@ -67,10 +68,85 @@ function formatTextToPreviewHtml(input = "") {
 export default function App() {
   const [form, setForm] = useState(INITIAL);
   const [imageFile, setImageFile] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const onChange = (e) => {
     const { name, value } = e.target;
     setForm((s) => ({ ...s, [name]: value }));
+  };
+
+  const fileToBase64 = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        // data:image/png;base64,XXXX...
+        const result = reader.result;
+        const base64 = String(result).split(",")[1] || "";
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+
+    try {
+      let finalImageUrl = (form.imageLink || "").trim();
+
+      // 1) If user didn't paste a URL, upload selected file to ImgBB
+      if (!finalImageUrl && imageFile) {
+        const base64 = await fileToBase64(imageFile);
+
+        const uploadRes = await fetch("/api/upload-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: base64, name: imageFile.name }),
+        });
+
+        const uploadJson = await uploadRes.json();
+        if (!uploadRes.ok) {
+          console.error("upload-image error:", uploadJson);
+          throw new Error(uploadJson?.error || "Image upload failed");
+        }
+
+        finalImageUrl = uploadJson?.url;
+        if (!finalImageUrl) throw new Error("No image URL returned from ImgBB");
+      }
+
+      if (!finalImageUrl) {
+        throw new Error("Please upload an image OR paste an image URL.");
+      }
+
+      // 2) Send payload to our server (it will forward to Zapier)
+      const payload = {
+        ...form,
+        image_url: finalImageUrl,
+        submitted_at: new Date().toISOString(),
+      };
+
+      const resp = await fetch("/api/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const respJson = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        console.error("submit error:", respJson);
+        throw new Error(respJson?.error || "Submit failed");
+      }
+
+      alert("✅ Sent to Zapier!");
+      setForm(INITIAL);
+      setImageFile(null);
+    } catch (err) {
+      alert(`❌ ${err.message}`);
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -84,15 +160,7 @@ export default function App() {
               and press Enter for new lines.
             </p>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                f;
-                console.log("FORM DATA:", form);
-                console.log("IMAGE FILE:", imageFile);
-                alert("Form is working. Next step: connect APIs.");
-              }}
-            >
+            <form onSubmit={handleSubmit}>
               <div className="row g-3">
                 <div className="col-12">
                   <label className="form-label">Subject *</label>
@@ -143,6 +211,7 @@ export default function App() {
                     placeholder={`Example:\nHello!\n- First benefit\n- Second benefit\n\n**Important:** Terms apply`}
                   />
                 </div>
+
                 <div className="col-12">
                   <label className="form-label">Live Preview</label>
                   <div
@@ -217,9 +286,14 @@ export default function App() {
                 </div>
 
                 <div className="col-12 d-flex gap-2 mt-2">
-                  <button className="btn btn-primary" type="submit">
-                    Submit (test)
+                  <button
+                    className="btn btn-primary"
+                    type="submit"
+                    disabled={submitting}
+                  >
+                    {submitting ? "Submitting..." : "Submit"}
                   </button>
+
                   <button
                     className="btn btn-outline-secondary"
                     type="button"
@@ -227,6 +301,7 @@ export default function App() {
                       setForm(INITIAL);
                       setImageFile(null);
                     }}
+                    disabled={submitting}
                   >
                     Reset
                   </button>
@@ -237,9 +312,8 @@ export default function App() {
         </div>
 
         <div className="alert alert-info mt-3">
-          Next: we’ll connect this submit button to{" "}
-          <code>/api/upload-image</code> (ImgBB) and <code>/api/submit</code>{" "}
-          (Zapier).
+          This version submits to <code>/api/upload-image</code> (ImgBB) and{" "}
+          <code>/api/submit</code> (Zapier).
         </div>
       </div>
     </div>
