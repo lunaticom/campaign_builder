@@ -1,17 +1,8 @@
+// /api/generate-html.js
 import fs from "fs";
 import path from "path";
 
 // --- helpers ---
-function safeFilename(s = "campaign") {
-  return s
-    .toString()
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-    .slice(0, 60);
-}
-
 function escapeHtml(str = "") {
   return str
     .replaceAll("&", "&amp;")
@@ -21,7 +12,7 @@ function escapeHtml(str = "") {
     .replaceAll("'", "&#039;");
 }
 
-// supports **bold**, - bullets, and new lines → safe HTML (same logic you used before)
+// supports **bold**, - bullets, and new lines → safe HTML
 function formatTextToSafeHtml(input = "") {
   const escaped = escapeHtml(input);
   const lines = escaped.split(/\r\n|\n|\r/);
@@ -68,6 +59,21 @@ function replaceAllSafe(template, key, value) {
   return template.replace(re, value ?? "");
 }
 
+// Your agreed naming rules:
+// - Only use what the user typed (no extra stuff added)
+// - Convert spaces -> underscores
+// - Strip weird chars
+function safeUserFilename(input = "") {
+  return input
+    .toString()
+    .trim()
+    .replace(/\s+/g, "_") // spaces → underscores
+    .replace(/[^a-zA-Z0-9_-]/g, "") // remove weird chars
+    .replace(/_+/g, "_") // collapse ___
+    .replace(/^_+|_+$/g, "") // trim underscores
+    .slice(0, 60);
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -79,22 +85,26 @@ export default async function handler(req, res) {
     const templateType = (payload.templateType || "CASINO")
       .toString()
       .toUpperCase();
-    const subject = payload.subject || "";
-    const preheader = payload.preheader || "";
 
-    const imageUrl = payload.image_url || payload.imageLink || "";
+    const subject = (payload.subject || "").toString();
+    const preheader = (payload.preheader || "").toString();
+
+    const imageUrl = (payload.image_url || payload.imageLink || "")
+      .toString()
+      .trim();
+
     if (!imageUrl) {
-      return res
-        .status(400)
-        .json({ error: "image_url is required (upload or paste Image URL)" });
+      return res.status(400).json({
+        error: "image_url is required (upload image first)",
+      });
     }
-    console.log("IMAGE URL USED:", imageUrl);
 
-    // Load template file from /api/templates/template_base.html
+    // Load template file from /api/templates/{templateKey}.html
     const templateKey = (payload.templateType || "CASINO")
       .toString()
       .trim()
       .toLowerCase();
+
     const templatePath = path.join(
       process.cwd(),
       "api",
@@ -114,17 +124,7 @@ export default async function handler(req, res) {
     const descrizioneHtml = formatTextToSafeHtml(payload.body || "");
     const tcHtml = formatTextToSafeHtml(payload.terms || "");
 
-    // Replace placeholders used in your big template
-    html = replaceAllSafe(html, "Titolo", escapeHtml(subject)); // optional if template uses it
-    html = replaceAllSafe(html, "Preheader", escapeHtml(preheader)); // hidden preheader block
-    html = replaceAllSafe(html, "Descrizione", descrizioneHtml);
-    html = replaceAllSafe(
-      html,
-      "Testo_CTA",
-      escapeHtml(payload.cta_text || "")
-    );
-    html = replaceAllSafe(html, "Link_CTA", escapeHtml(payload.cta_link || ""));
-    html = replaceAllSafe(html, "Immagine_URL", escapeHtml(imageUrl));
+    // Click link (separate from img src)
     const imageClickLink = (
       payload.image_click_link ||
       payload.imageClickLink ||
@@ -133,20 +133,41 @@ export default async function handler(req, res) {
       .toString()
       .trim();
 
+    // Replace placeholders
+    html = replaceAllSafe(html, "Titolo", escapeHtml(subject));
+    html = replaceAllSafe(html, "Preheader", escapeHtml(preheader));
+    html = replaceAllSafe(html, "Descrizione", descrizioneHtml);
+    html = replaceAllSafe(
+      html,
+      "Testo_CTA",
+      escapeHtml(payload.cta_text || "")
+    );
+    html = replaceAllSafe(html, "Link_CTA", escapeHtml(payload.cta_link || ""));
+    html = replaceAllSafe(html, "Immagine_URL", escapeHtml(imageUrl));
     html = replaceAllSafe(
       html,
       "Link_img_header",
       escapeHtml(imageClickLink || payload.cta_link || "")
     );
     html = replaceAllSafe(html, "T_C", tcHtml);
-
-    // Optional: if you want to show template type somewhere in HTML for debugging
     html = replaceAllSafe(html, "TemplateType", escapeHtml(templateType));
 
-    // Download headers
+    // Filename (server side): support your CURRENT frontend key "imageName"
+    // but also accept fileName/file_name if you add it later.
     const stamp = new Date().toISOString().slice(0, 10);
-    const name = safeFilename(subject || templateType);
-    const filename = `${templateType}_${stamp}_${name}.html`;
+
+    const rawName = (
+      payload.file_name ||
+      payload.fileName ||
+      payload.imageName || // ✅ matches your App.jsx
+      ""
+    )
+      .toString()
+      .trim();
+
+    const filename = rawName
+      ? `${safeUserFilename(rawName)}.html`
+      : `${templateType}_${stamp}.html`;
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

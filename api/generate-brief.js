@@ -1,13 +1,4 @@
 // /api/generate-brief.js
-function safeFilename(s = "campaign") {
-  return s
-    .toString()
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-    .slice(0, 60);
-}
 
 // Convert your body/terms into readable plain text (no HTML)
 function toPlainText(input = "") {
@@ -15,6 +6,16 @@ function toPlainText(input = "") {
     .toString()
     .replace(/\*\*(.+?)\*\*/g, "$1") // remove **bold**
     .trim();
+}
+
+function safeUserFilename(input = "") {
+  return input
+    .trim()
+    .replace(/\s+/g, "_") // spaces → underscores
+    .replace(/[^a-zA-Z0-9_-]/g, "") // remove weird chars
+    .replace(/_+/g, "_") // collapse ___
+    .replace(/^_+|_+$/g, "") // trim underscores
+    .slice(0, 60);
 }
 
 export default async function handler(req, res) {
@@ -27,15 +28,18 @@ export default async function handler(req, res) {
     const templateType = (payload.templateType || "CASINO")
       .toString()
       .toUpperCase();
+
     const subject = (payload.subject || "").toString().trim();
     const preheader = (payload.preheader || "").toString().trim();
     const body = toPlainText(payload.body || "");
     const ctaText = (payload.cta_text || "").toString().trim();
     const ctaLink = (payload.cta_link || "").toString().trim();
     const terms = toPlainText(payload.terms || "");
+
     const imageUrl = (payload.image_url || payload.imageLink || "")
       .toString()
       .trim();
+
     const imageClickLink = (
       payload.image_click_link ||
       payload.imageClickLink ||
@@ -43,9 +47,20 @@ export default async function handler(req, res) {
     )
       .toString()
       .trim();
+
     const stamp = new Date().toISOString().slice(0, 10);
-    const name = safeFilename(subject || templateType);
-    const filename = `${templateType}_${stamp}_${name}_brief.txt`;
+
+    // filename rules (same as HTML, but .txt and brief suffix)
+    const rawUserName = (payload.file_name || payload.fileName || "")
+      .toString()
+      .trim();
+
+    let filename;
+    if (rawUserName) {
+      filename = `${safeUserFilename(rawUserName)}_brief.txt`;
+    } else {
+      filename = `${templateType}_${stamp}_brief.txt`;
+    }
 
     const text = `CAMPAIGN BRIEF
 -------------
@@ -62,11 +77,9 @@ CTA:
 - Text: ${ctaText}
 - Link: ${ctaLink}
 
-Image URL:
-${imageUrl}
-
-Src (uploaded): ${imageUrl}
-Click link:     ${imageClickLink}
+Header image:
+- Src (uploaded): ${imageUrl}
+- Click link:     ${imageClickLink}
 
 Terms & Conditions:
 ${terms}
