@@ -10,7 +10,7 @@ const INITIAL = {
   cta_link: "",
   terms: "",
   imageClickLink: "",
-  imageName: "", // NEW: used for upload + download filenames
+  fileName: "", // ✅ controls download file names (HTML + brief)
 };
 
 function escapeHtml(str = "") {
@@ -37,11 +37,9 @@ function formatTextToPreviewHtml(input = "") {
         html += "<ul>";
         inList = true;
       }
-
       const content = trimmed
         .slice(2)
         .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-
       html += `<li>${content}</li>`;
     } else {
       if (inList) {
@@ -65,14 +63,17 @@ function formatTextToPreviewHtml(input = "") {
   return html;
 }
 
-// Filename helpers (client-side)
-function safeFilename(s = "file") {
-  return s
+// Filename helper (client-side)
+// - spaces -> underscores
+// - removes weird chars
+function safeUserFilename(input = "") {
+  return input
     .toString()
     .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9_-]/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
     .slice(0, 60);
 }
 
@@ -103,14 +104,13 @@ export default function App() {
       reader.readAsDataURL(file);
     });
 
-  // Download helper: force a filename (instead of relying on server headers)
   const downloadBlob = async (response, forcedFilename) => {
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = forcedFilename || ""; // ✅ set a real name here
+    a.download = forcedFilename || "";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -146,7 +146,7 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageBase64: base64,
-          name: (form.imageName || imageFile.name).toString().trim(), // ✅ use custom name if provided
+          name: imageFile.name, // optional, just for ImgBB metadata
         }),
       });
 
@@ -158,25 +158,24 @@ export default function App() {
 
       const uploadedImageUrl = uploadJson.url;
 
-      // 2) Payload (image src + click link separated)
+      // ✅ Build the download filenames (single source of truth = fileName field)
+      const stamp = getStamp();
+      const t = (form.templateType || "CASINO").toString().toUpperCase();
+      const clean = safeUserFilename(form.fileName || "");
+
+      const htmlFilename = clean ? `${clean}.html` : `${t}_${stamp}.html`;
+      const briefFilename = clean
+        ? `${clean}_brief.txt`
+        : `${t}_${stamp}_brief.txt`;
+
+      // 2) Payload (send file_name to backend so headers match too)
       const payload = {
         ...form,
+        file_name: form.fileName, // backend reads file_name / fileName
         image_url: uploadedImageUrl,
         image_click_link: (form.imageClickLink || "").trim(),
         submitted_at: new Date().toISOString(),
       };
-
-      // Build clean, consistent filenames for downloads
-      const stamp = getStamp();
-      const t = (form.templateType || "CASINO").toString().toUpperCase();
-      const subjectSlug = safeFilename(form.subject || "campaign");
-      const imageSlug = safeFilename(
-        form.imageName || imageFile.name || "image"
-      );
-
-      // ✅ Final download names (you can tweak the pattern)
-      const htmlFilename = `${t}_${stamp}_${subjectSlug}__img-${imageSlug}.html`;
-      const briefFilename = `${t}_${stamp}_${subjectSlug}__img-${imageSlug}_brief.txt`;
 
       // 3) Download HTML
       const generateRes = await fetch("/api/generate-html", {
@@ -211,10 +210,7 @@ export default function App() {
       // 5) Reset
       setForm(INITIAL);
       setImageFile(null);
-      setStatus({
-        type: "success",
-        message: "Downloaded: email.html + brief.txt",
-      });
+      setStatus({ type: "success", message: "Downloaded: HTML + brief" });
     } catch (err) {
       console.error(err);
       setStatus({
@@ -288,6 +284,22 @@ export default function App() {
                       <option value="LOTTERY">LOTTERY</option>
                     </select>
                   </div>
+
+                  {/* ✅ File name (optional) */}
+                  <div className="col-12">
+                    <label className="form-label">File name (optional)</label>
+                    <input
+                      className="form-control"
+                      name="fileName"
+                      value={form.fileName}
+                      onChange={onChange}
+                      placeholder="welcome bonus"
+                    />
+                    <div className="form-text">
+                      If empty: uses <code>TEMPLATE_YYYY-MM-DD</code>. Spaces
+                      become underscores.
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -302,35 +314,12 @@ export default function App() {
                       className="form-control"
                       type="file"
                       accept="image/*"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0] || null;
-                        setImageFile(file);
-
-                        // Prefill imageName from file (without extension)
-                        if (file) {
-                          const baseName = file.name.replace(/\.[^/.]+$/, "");
-                          setForm((s) => ({ ...s, imageName: baseName }));
-                        }
-                      }}
+                      onChange={(e) =>
+                        setImageFile(e.target.files?.[0] || null)
+                      }
                     />
                     <div className="form-text">
-                      Required: this becomes the &lt;img src&gt;.
-                    </div>
-
-                    <div className="mt-2">
-                      <label className="form-label">
-                        Image name (optional)
-                      </label>
-                      <input
-                        className="form-control"
-                        name="imageName"
-                        value={form.imageName}
-                        onChange={onChange}
-                        placeholder="header-promo-casino"
-                      />
-                      <div className="form-text">
-                        Used for upload + download filenames.
-                      </div>
+                      Required: becomes the &lt;img src&gt;.
                     </div>
                   </div>
 
