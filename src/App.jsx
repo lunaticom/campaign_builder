@@ -28,35 +28,47 @@ function formatTextToPreviewHtml(input = "") {
 
   let html = "";
   let inList = false;
+  let lastWasBreak = false;
 
   for (const line of lines) {
     const trimmed = line.trim();
 
     if (trimmed.startsWith("- ")) {
       if (!inList) {
+        // If we were adding breaks, stop doubling before starting a list
+        lastWasBreak = false;
         html += "<ul>";
         inList = true;
       }
+
       const content = trimmed
         .slice(2)
         .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-      html += `<li>${content}</li>`;
-    } else {
-      if (inList) {
-        html += "</ul>";
-        inList = false;
-      }
 
-      if (trimmed === "") {
-        html += "<br>";
-      } else {
-        const withBold = trimmed.replace(
-          /\*\*(.+?)\*\*/g,
-          "<strong>$1</strong>"
-        );
-        html += `${withBold}<br>`;
-      }
+      html += `<li>${content}</li>`;
+      continue;
     }
+
+    // close list if needed
+    if (inList) {
+      html += "</ul>";
+      inList = false;
+      lastWasBreak = false;
+    }
+
+    // blank line → single <br> max
+    if (trimmed === "") {
+      if (!lastWasBreak) {
+        html += "<br>";
+        lastWasBreak = true;
+      }
+      continue;
+    }
+
+    // normal line
+    const withBold = trimmed.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    html += `${withBold}<br>`;
+    lastWasBreak = true;
   }
 
   if (inList) html += "</ul>";
